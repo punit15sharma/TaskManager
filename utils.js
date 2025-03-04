@@ -1,7 +1,7 @@
 const PROJECTS = {
-   'anomaly-trig': { name: 'Anomaly Trig.', color: '#3b82f6' },
-   'vll-dp': { name: 'VLL DP', color: '#ef4444' },
-   'qiml': { name: 'QiML', color: '#8b5cf6' },
+   'HH bbyy': { name: 'HH bbyy', color: '#3b82f6' },
+   'EF Tracking': { name: 'EF Tracking', color: '#ef4444' },
+   'FCC 6Jets': { name: 'FCC 6Jets', color: '#8b5cf6' },
    'misc-atlas': { name: 'Misc. ATLAS', color: '#f59e0b' },
    'other': { name: 'Other', color: '#6b7280' }
 };
@@ -91,6 +91,6 @@ const analyzeWorkload = (tasks) => {
        message = "Workload looks balanced! 💫";
        advice = "You're maintaining a good pace. Keep it up!";
    }
-   let workload = "Your workload score is " + Math.round(totalWorkload) + ". 25 is considered impossible.";
+   let workload = "Your workload score is " + Math.round(totalWorkload) + " It's okay to take breaks";
    return { message, advice, workload };
 };
