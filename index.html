@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sagar's Task Planner</title>
+    <script src="imports/react.js"></script>
+    <script src="imports/react-dom.js"></script>
+    <script src="imports/babel.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script src="utils.js"></script>
+    <script type="text/babel">
+        function TaskMatrix() {
+
+            const [tasks, setTasks] = React.useState(() => {
+                const savedTasks = localStorage.getItem('tasks');
+                return savedTasks ? JSON.parse(savedTasks) : [];
+            });
+            
+            const [completedTasks, setCompletedTasks] = React.useState(() => {
+                const saved = localStorage.getItem('completedTasks');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            const [showCompleted, setShowCompleted] = React.useState(false);
+
+            const [newTask, setNewTask] = React.useState({ 
+                name: '', 
+                importance: 3, 
+                length: 3, 
+                difficulty: 3,
+                project: 'other'  // Default project
+            });
+
+            const [currentFilter, setCurrentFilter] = React.useState('all'); // Default to showing all tasks
+
+            const [activeTab, setActiveTab] = React.useState('tasks'); // 'tasks' or 'notes'
+
+            const [projectNotes, setProjectNotes] = React.useState(() => {
+                const savedNotes = localStorage.getItem('projectNotes');
+                return savedNotes ? JSON.parse(savedNotes) : { 'general': '' };
+            });
+
+            React.useEffect(() => {
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+                localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+                localStorage.setItem('projectNotes', JSON.stringify(projectNotes));
+            }, [tasks, completedTasks, projectNotes]);
+
+            const addTask = () => {
+                if (newTask.name.trim()) {
+                    setTasks(prev => [...prev, { 
+                        ...newTask, 
+                        id: Date.now(),
+                        project: newTask.project || 'other',
+                        createdAt: new Date().toISOString()
+                    }]);
+                    setNewTask({ name: '', importance: 3, length: 3, difficulty: 3, project: 'other' });
+                }
+            };
+
+            const completeTask = (task) => {
+                const taskElement = document.getElementById(`task-${task.id}`);
+                taskElement.classList.add('celebrate');
+                
+                setTimeout(() => {
+                    setTasks(prev => prev.filter(t => t.id !== task.id));
+                    setCompletedTasks(prev => [{
+                        ...task,
+                        completedAt: new Date().toISOString()
+                    }, ...prev.slice(0, 49)]);
+                }, 500);
+            };
+
+            const revertTask = (task) => {
+                setCompletedTasks(prev => prev.filter(t => t.id !== task.id));
+                setTasks(prev => [...prev, {
+                    ...task,
+                    createdAt: new Date().toISOString() // Reset creation date to now
+                }]);
+            };
+
+            const removeTask = (id) => {
+                setTasks(prev => prev.filter(task => task.id !== id));
+            };
+
+            const removeCompletedTask = (id) => {
+                setCompletedTasks(prev => prev.filter(task => task.id !== id));
+            };
+
+            const sortedTasks = [...tasks].sort((a, b) => calculatePriority(b) - calculatePriority(a));
+            const filteredTasks = currentFilter === 'all' 
+                ? sortedTasks 
+                : sortedTasks.filter(task => {
+                    // If filtering by 'other', include tasks that have no project or project is 'other'
+                    if (currentFilter === 'other') {
+                        return !task.project || task.project === 'other';
+                    }
+                    // Otherwise, match the specific project
+                    return task.project === currentFilter;
+            });
+
+            const filteredCompletedTasks = currentFilter === 'all' 
+                ? completedTasks 
+                : completedTasks.filter(task => task.project === currentFilter || 
+                    (!task.project && currentFilter === 'other')); // Include tasks with no project in "other"
+
+            const exportToJson = () => {
+                const data = {
+                    tasks: tasks,
+                    completedTasks: completedTasks
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `tasks-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const importFromJson = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            setTasks(data.tasks || []);
+                            setCompletedTasks(data.completedTasks || []);
+                        } catch (error) {
+                            alert('Invalid JSON file');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+                event.target.value = ''; // Reset input
+            };
+
+            const [editingTask, setEditingTask] = React.useState(null);
+
+            const startEditing = (task) => {
+                setEditingTask(task);
+            };
+
+            const saveEdit = () => {
+                if (editingTask.id === 'new') {
+                    // Adding a new task
+                    const newTaskObj = {
+                    ...editingTask,
+                    id: Date.now(),
+                    createdAt: new Date().toISOString()
+                    };
+                    setTasks(prev => [...prev, newTaskObj]);
+                } else {
+                    // Editing existing task
+                    setTasks(prev => prev.map(task => 
+                    task.id === editingTask.id ? editingTask : task
+                    ));
+                }
+                setEditingTask(null);
+            };
+
+            return (
+                <div>  {/* New wrapper */}
+
+                    <div className="card">
+                        <div className="header-container">
+                            <div className="header-left">
+                                <h1 className="text-xl font-bold">Sagar's Task Manager</h1>
+                            </div>
+                            
+                            <div className="header-center workload-message">
+                                <div className="message-main">{analyzeWorkload(tasks).message}</div>
+                                <div className="message-advice">{analyzeWorkload(tasks).advice}</div>
+                                <div className="message-workload">{analyzeWorkload(tasks).workload}</div>
+                            </div>
+                            
+                            <div className="header-right">
+                                <button onClick={exportToJson} className="btn-secondary">
+                                Export to JSON
+                                </button>
+                                <label className="btn-secondary">
+                                Import from JSON
+                                <input
+                                    type="file"
+                                    accept=".json"
+                                    onChange={importFromJson}
+                                    className="hidden"
+                                />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Project filter for both tasks and notes */}
+                        <div className="project-tabs">
+                            <button
+                                className={`project-tab ${currentFilter === 'all' ? 'active' : ''}`}
+                                onClick={() => setCurrentFilter('all')}
+                            >
+                                All
+                            </button>
+                            {Object.keys(PROJECTS).map(projectId => (
+                                <button
+                                key={projectId}
+                                className={`project-tab ${currentFilter === projectId ? 'active' : ''}`}
+                                onClick={() => setCurrentFilter(projectId)}
+                                style={{
+                                    borderLeft: currentFilter !== projectId ? `3px solid ${PROJECTS[projectId].color}` : 'none'
+                                }}
+                                >
+                                {PROJECTS[projectId].name}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="section-divider"></div>
+
+                        {/* Task and Notes Content */}
+                        <div className="main-content">
+                        <div className="tasks-section">
+                        <div className="content">
+                            {/* Task Grid */}
+                            <div className="task-grid">
+                                {/* Add Task Button */}
+                                <div 
+                                    className="add-task-button"
+                                    onClick={() => {
+
+                                    // Create a blank task object as template
+                                    const blankTask = { 
+                                        id: 'new', 
+                                        name: '', 
+                                        importance: 3, 
+                                        length: 3, 
+                                        difficulty: 3, 
+                                        project: currentFilter === 'all' ? 'other' : currentFilter,
+                                        deadline: ''
+                                    };
+                                    setEditingTask(blankTask);                             
+                                }}
+                                >
+                                    <div className="add-task-icon">+</div>
+                                    <div>Add Task</div>
+                                </div>
+                                {
+                                    filteredTasks.map(task => (
+                                    <div
+                                        id={`task-${task.id}`}
+                                        key={task.id}
+                                        className={`task-item slide-in importance-${task.importance}`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1 min-w-0 text-center">  {/* Add text-center here */}
+                                                <h3 className="task-name text-left">  {/* Add text-left to keep title aligned left */}
+                                                    {task.name}
+                                                </h3>
+                                                <div className="priority-container">
+                                                    <span className="priority-badge">
+                                                        {calculatePriority(task)}
+                                                    </span>
+                                                    <span className="project-badge" style={{marginLeft: '0.5rem',
+                                                    backgroundColor: PROJECTS[task.project || 'other'].color || PROJECTS['other'].color1}}>
+                                                        {PROJECTS[task.project || 'other'].name || PROJECTS['other'].name}                                                    
+                                                    </span>
+                                                </div>
+                                                <div className="task-meta justify-center">  {/* Add justify-center */}
+                                                    <span>Importance: {task.importance}</span>
+                                                    <span>Length: {task.length}</span>
+                                                    <span>Difficulty: {task.difficulty}</span>
+                                                </div>
+                                                <div className="task-meta justify-center">  {/* Add justify-center */}
+                                                    Added {formatDate(task.createdAt)} ({getDaysOld(task.createdAt)} days ago)
+                                                </div>
+                                                {task.deadline && (
+                                                    <div className="task-meta justify-center">
+                                                        Deadline: {new Date(task.deadline).toLocaleDateString()}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="action-buttons">
+                                                <button
+                                                    onClick={() => completeTask(task)}
+                                                    className="action-btn complete"
+                                                    title="Complete task"
+                                                >
+                                                    <span style={{ marginTop: '-2px' }}>✔</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => startEditing(task)}
+                                                    className="action-btn edit"
+                                                    title="Edit task"
+                                                >
+                                                    <span style={{ marginTop: '-2px' }}>✎</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => removeTask(task.id)}
+                                                    className="action-btn delete"
+                                                    title="Delete task"
+                                                >
+                                                    <span style={{ marginTop: '-2px' }}>✖</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="section-divider"></div>
+
+                            {/* Completed Tasks */}
+                            <div>
+                                <button
+                                    onClick={() => setShowCompleted(!showCompleted)}
+                                    className="btn w-full flex justify-between items-center"
+                                >
+                                    <span>Completed Tasks ({filteredCompletedTasks.length})</span>
+                                    <span>{showCompleted ? ' ▼ ' : ' ▶ '}</span>
+                                </button>
+
+                                <div className={`completed-section ${showCompleted ? 'open' : ''}`}>
+                                    <div className="completed-task-grid">
+                                        {filteredCompletedTasks.map(task => (
+                                        <div
+                                            key={task.id}
+                                            className="task-item completed-task"
+                                        >
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <div className="task-name">{task.name}</div>
+                                                    <div className="task-meta">
+                                                        Started: {formatDate(task.createdAt)}
+                                                    </div>
+                                                    <div className="task-meta">
+                                                        Completed: {formatDate(task.completedAt)}
+                                                    </div>
+                                                    <div className="priority-container">
+                                                        <span 
+                                                            className="project-badge" 
+                                                            style={{
+                                                            marginLeft: '0.5rem',
+                                                            backgroundColor: (PROJECTS[task.project || 'other'] && PROJECTS[task.project || 'other'].color) || PROJECTS['other'].color
+                                                            }}
+                                                        >
+                                                            {(PROJECTS[task.project || 'other'] && PROJECTS[task.project || 'other'].name) || PROJECTS['other'].name}
+                                                        </span>
+                                                    </div>
+                                                    <div className="task-meta">
+                                                        Importance: {task.importance} | Length: {task.length} | Difficulty: {task.difficulty}
+                                                    </div>
+                                                </div>
+                                                <div className="action-buttons">
+                                                    <button
+                                                        onClick={() => revertTask(task)}
+                                                        className="action-btn revert"
+                                                        title="Revert to todo"
+                                                    >
+                                                        <span style={{ marginTop: '-2px' }}>↩</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => removeCompletedTask(task.id)}
+                                                        className="action-btn delete"
+                                                        title="Delete completed task"
+                                                    >
+                                                        <span style={{ marginTop: '-2px' }}>✖</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                        <div className="notes-section">
+                        <div style={{ padding: '1rem' }}>
+                            {/* Notes textarea with improved styling */}
+                            <div className="notes-container">
+                                <textarea
+                                    value={projectNotes[currentFilter === 'all' ? 'general' : currentFilter] || ''}
+                                    onChange={(e) => {
+                                        const updatedNotes = {...projectNotes};
+                                        updatedNotes[currentFilter === 'all' ? 'general' : currentFilter] = e.target.value;
+                                        setProjectNotes(updatedNotes);
+                                    }}
+                                    className="notes-textarea"
+                                    placeholder="Add notes here..."
+                                />
+                            </div>
+                        </div>
+                        </div>
+                        </div>
+                        {editingTask && (
+                        <div className="edit-overlay" onClick={() => setEditingTask(null)}>
+                            <div className="edit-modal" onClick={e => e.stopPropagation()}>
+                                <h3 className="task-name">Edit Task: {editingTask.name}</h3>
+                                
+                                <input
+                                    type="text"
+                                    value={editingTask.name}
+                                    onChange={(e) => setEditingTask({
+                                        ...editingTask,
+                                        name: e.target.value
+                                    })}
+                                    className="input"
+                                    placeholder={editingTask.id === 'new' ? "Enter new task name..." : ""}
+                                />
+                                
+                                <div className="grid">
+                                    {['Importance', 'Length', 'Difficulty'].map(type => (
+                                        <div key={type} className="slider-container">
+                                            <label className="block text-sm font-medium">
+                                                {type}: {editingTask[type.toLowerCase()]}
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="5"
+                                                value={editingTask[type.toLowerCase()]}
+                                                onChange={(e) => setEditingTask({
+                                                    ...editingTask,
+                                                    [type.toLowerCase()]: parseInt(e.target.value)
+                                                })}
+                                                className="slider"
+                                                style={{ '--slider-value': `${(editingTask[type.toLowerCase()] - 1) * 25}%` }}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem', width: '100%'}}>
+                                    <div className="slider-container">
+                                        <label className="block text-sm font-medium text-center mb-2">
+                                            Deadline (optional)
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={editingTask.deadline || ''}
+                                            onChange={(e) => setEditingTask({
+                                                ...editingTask,
+                                                deadline: e.target.value || null
+                                            })}
+                                            className="input text-center"
+                                        />
+                                    </div>
+                                    <div className="slider-container">
+                                        <label className="block text-sm font-medium text-center mb-2">
+                                            Project
+                                        </label>
+                                        <select
+                                            value={editingTask.project || 'other'}
+                                            onChange={(e) => setEditingTask({
+                                            ...editingTask,
+                                            project: e.target.value
+                                            })}
+                                            className="input text-center w-full"
+                                        >
+                                            {Object.keys(PROJECTS).map(projectId => (
+                                            <option key={projectId} value={projectId}>
+                                                {PROJECTS[projectId].name}
+                                            </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem', gap: '1rem' }}>
+                                    <button 
+                                        onClick={() => setEditingTask(null)}
+                                        className="btn"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        onClick={saveEdit}
+                                        className="btn btn-primary"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<TaskMatrix />, document.getElementById('root'));
+    </script>
+</body>
+</html>
